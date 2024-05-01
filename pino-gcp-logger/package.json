@@ -1,0 +1,14 @@
+{
+  "name": "pino-gcp-logger",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "pino": "^9.0.0"
+  }
+}
