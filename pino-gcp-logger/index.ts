@@ -22,16 +22,18 @@ function gcpLogger(
 ): LoggerOptions {
   const { serviceName, version, mixin } = context;
 
+  const base =
+    serviceName && version
+      ? { serviceContext: { service: serviceName, version } }
+      : {};
+
   return {
+    base,
     level: "info",
     mixin: (mergeObject: object, _: number) => {
       return {
         jsonPayload: {
           ...mergeObject,
-        },
-        serviceContext: {
-          service: serviceName,
-          version: version,
         },
       };
     },
@@ -62,7 +64,7 @@ export class Logger {
     }));
   }
 
-  debug(message: String, obj?: Object) {
+  debug(message: String, obj?: Record<string, string>) {
     this.logger.debug({ message: message, ...obj });
   }
 
@@ -82,3 +84,7 @@ export class Logger {
     this.logger.fatal({ message: message, ...obj });
   }
 }
+
+let logger = new Logger('my-service', 'v1');
+logger.info('Hello world', { a: 'b' });
+logger.debug('Hello world', { a: 'b' });
