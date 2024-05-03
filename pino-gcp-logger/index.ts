@@ -10,26 +10,20 @@ const gcpLogSeverity: Record<string, string> = {
   fatal: 'CRITICAL',
 }
 
-export interface ServiceContext {
+interface ServiceContext {
   serviceName?: string;
   version?: string;
   mixin?: (mergeObject: object, level: number) => object;
 }
 
-function gcpLogger(
-  options?: LoggerOptions,
-  context: ServiceContext = {},
-): LoggerOptions {
-  const { serviceName, version, mixin } = context;
+function gcpLogger(options?: LoggerOptions, context: ServiceContext = {}): LoggerOptions {
+  const { serviceName, version } = context;
 
-  const base =
-    serviceName && version
-      ? { serviceContext: { service: serviceName, version } }
-      : {};
+  const base = serviceName && version ? { serviceContext: { service: serviceName, version } } : {};
 
   return {
     base,
-    level: "info",
+    level: 'info',
     mixin: (mergeObject: object, _: number) => {
       return {
         jsonPayload: {
@@ -40,7 +34,7 @@ function gcpLogger(
     formatters: {
       level: (label: string) => {
         const pinoLevel = label as Level;
-        const severity = gcpLogSeverity[pinoLevel] ?? "INFO";
+        const severity = gcpLogSeverity[pinoLevel] ?? 'INFO';
         return { severity };
       },
     },
@@ -51,40 +45,49 @@ function gcpLogger(
     timestamp: pino.stdTimeFunctions.isoTime,
     messageKey: 'message',
     ...options,
-  }
+  };
 }
+
+type LogRecord = Record<string, object | unknown>;
 
 export class Logger {
   logger: pino.Logger;
 
   constructor(serviceName: string, version: string) {
-    this.logger = pino(gcpLogger({}, {
-      serviceName: serviceName,
-      version: version,
-    }));
+    this.logger = pino(
+      gcpLogger(
+        {},
+        {
+          serviceName: serviceName,
+          version: version,
+        },
+      ),
+    );
   }
 
-  debug(message: String, obj?: Record<string, string>) {
+  debug(message: string, obj?: LogRecord) {
     this.logger.debug({ message: message, ...obj });
   }
 
-  info(message: String, obj?: Object) {
+  info(message: string, obj?: LogRecord) {
     this.logger.info({ message: message, ...obj });
   }
 
-  warn(message: String, obj?: Object) {
+  warn(message: string, obj?: LogRecord) {
     this.logger.warn({ message: message, ...obj });
   }
 
-  error(message: String, obj?: Object) {
+  error(message: string, obj?: LogRecord) {
     this.logger.error({ message: message, ...obj });
   }
 
-  critical(message: String, obj?: Object) {
+  critical(message: string, obj?: LogRecord) {
     this.logger.fatal({ message: message, ...obj });
   }
 }
 
+let hoge = { a: 'b', b: {} };
+
 let logger = new Logger('my-service', 'v1');
-logger.info('Hello world', { a: 'b' });
-logger.debug('Hello world', { a: 'b' });
+logger.info('Hello world', { a: hoge });
+// logger.debug('Hello world', { hoge: hoge });
