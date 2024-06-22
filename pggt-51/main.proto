@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package example;
+
+import "tagger/tagger.proto";
+
+option go_package = "github.com/ucpr/workspace2024/pggt-51/gen";
+
+message Example {
+  string a = 1 [(tagger.tags) = "a:\"a\" b:\"a\" c:\"a\" d:\"a\" e:\"a\" f:\"a\" g:\"a\" h:\"a\" i:\"a\" yaml:\"a\" csv:\"a\" bundle:\"a\" bun:\"a\" pg:\"a\""];
+  string b = 2 [(tagger.tags) = "a:\"b\" b:\"b\" c:\"b\" d:\"b\" e:\"b\" f:\"b\" g:\"b\" h:\"b\" i:\"b\" yaml:\"b\" csv:\"b\" bundle:\"b\" bun:\"b\" pg:\"b\""];
+  string c = 3 [(tagger.tags) = "a:\"c\" b:\"c\" c:\"c\" d:\"c\" e:\"c\" f:\"c\" g:\"c\" h:\"c\" i:\"c\" yaml:\"c\" csv:\"c\" bundle:\"c\" bun:\"c\" pg:\"c\""];
+}
