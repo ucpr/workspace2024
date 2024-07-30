@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package v1;
+
+option go_package = "github.com/example/example";
+
+service EchoService {
+    rpc Speak(SpeakRequest) returns(SpeakResponse) {}
+}
+
+message SpeakRequest {
+    string input = 1;
+}
+
+message SpeakResponse {
+    string output = 2;
+}
