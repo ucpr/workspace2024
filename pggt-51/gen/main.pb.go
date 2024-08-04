@@ -26,9 +26,9 @@ type Example struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	A string `protobuf:"bytes,1,opt,name=a,proto3" json:"a,omitempty" a:"a" b:"a" c:"a" d:"a" e:"a" f:"a" g:"a" h:"a" i:"a" yaml:"a" csv:"a" bundle:"a" bun:"a" pg:"a"`
-	B string `protobuf:"bytes,2,opt,name=b,proto3" json:"b,omitempty" a:"b" b:"b" c:"b" d:"b" e:"b" f:"b" g:"b" h:"b" i:"b" yaml:"b" csv:"b" bundle:"b" bun:"b" pg:"b"`
-	C string `protobuf:"bytes,3,opt,name=c,proto3" json:"c,omitempty" a:"c" b:"c" c:"c" d:"c" e:"c" f:"c" g:"c" h:"c" i:"c" yaml:"c" csv:"c" bundle:"c" bun:"c" pg:"c"`
+	A string `protobuf:"bytes,1,opt,name=a,proto3" json:"a,omitempty" a:"a" b:"a" bun:"a" bundle:"a" c:"a" csv:"a" d:"a" e:"a" f:"a" g:"a" h:"a" i:"a" pg:"a" yaml:"a"`
+	B string `protobuf:"bytes,2,opt,name=b,proto3" json:"b,omitempty" a:"b" b:"b" bun:"b" bundle:"b" c:"b" csv:"b" d:"b" e:"b" f:"b" g:"b" h:"b" i:"b" pg:"b" yaml:"b"`
+	C string `protobuf:"bytes,3,opt,name=c,proto3" json:"c,omitempty" a:"c" b:"c" bun:"c" bundle:"c" c:"c" csv:"c" d:"c" e:"c" f:"c" g:"c" h:"c" i:"c" pg:"c" yaml:"c"`
 }
 
 func (x *Example) Reset() {
