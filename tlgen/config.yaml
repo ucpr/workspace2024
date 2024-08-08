@@ -3,6 +3,8 @@ receivers:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
 
 processors:
   batch:
@@ -15,7 +17,7 @@ exporters:
     verbosity: detailed
   prometheus:
     endpoint: "0.0.0.0:30001"
-    namespace: monitoring
+    namespace: otelcol_gateway
     send_timestamps: true
     metric_expiration: 180m
     enable_open_metrics: false
