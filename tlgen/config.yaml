@@ -6,12 +6,27 @@ receivers:
 
 processors:
   batch:
+  memory_limiter:
+    check_interval: 5s
+    limit_percentage: 20
 
 exporters:
   debug:
     verbosity: detailed
+  prometheus:
+    endpoint: "0.0.0.0:30001"
+    namespace: monitoring
+    send_timestamps: true
+    metric_expiration: 180m
+    enable_open_metrics: false
+    add_metric_suffixes: true
+    resource_to_telemetry_conversion:
+      enabled: true
 
 service:
+  telemetry:
+    metrics:
+      address: ":8888"
   pipelines:
     logs:
       receivers: [otlp]
@@ -19,8 +34,8 @@ service:
       exporters: [debug]
     metrics:
       receivers: [otlp]
-      processors: [batch]
-      exporters: [debug]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
     traces:
       receivers: [otlp]
       processors: [batch]
