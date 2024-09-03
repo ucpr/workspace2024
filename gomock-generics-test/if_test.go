@@ -11,13 +11,9 @@ import (
 
 func TestExampleServiceWithGenerics(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	mockService := mock.NewMockExampleService[int](ctrl)
 
 	mockService.EXPECT().Process(10).Return(20)
-
 	result := mockService.Process(10)
-
 	assert.Equal(t, 20, result)
 }
