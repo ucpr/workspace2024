@@ -4,24 +4,23 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from gcloud.aio.pubsub import PubsubMessage
 from gcloud.aio.pubsub import PublisherClient
 import fastavro
-from fastavro.schema import load_schema
 from fastavro.validation import validate
-
 import asyncio
-# import aiohttp
+import aiohttp
 import time
 import io
 
-BATCH_SIZE = 3
-BATCH_INTERVAL = 5
-SHUTDOWN_TIMEOUT = 3
+from schema import accesslog_schema
+
+BATCH_SIZE = 100
+BATCH_INTERVAL = 3
+SHUTDOWN_TIMEOUT = 10
 
 app = FastAPI()
 queue = asyncio.Queue()
-accesslog_schema = load_schema("./schema.avsc")
 
-# session = aiohttp.ClientSession()
-pubsub_client = PublisherClient()  # (session=session)
+session = aiohttp.ClientSession()
+pubsub_client = PublisherClient(session=session)
 topic = pubsub_client.topic_path('*', 'pybqlog-access-log-v1')
 
 
@@ -91,6 +90,8 @@ async def publish_to_pubsub(data):
     messages = [
         PubsubMessage(x) for x in data
     ]
+    # await asyncio.sleep(3)
+    print("fin sleep", len(messages))
     await pubsub_client.publish(topic, messages)
 
 
