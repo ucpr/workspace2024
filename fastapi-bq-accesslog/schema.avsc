@@ -66,28 +66,28 @@
       "name": "status",
       "type": [
         "null",
-        "int"
+        "long"
       ]
     },
     {
       "name": "duration",
       "type": [
         "null",
-        "int"
+        "long"
       ]
     },
     {
       "name": "requestSize",
       "type": [
         "null",
-        "int"
+        "long"
       ]
     },
     {
       "name": "responseSize",
       "type": [
         "null",
-        "int"
+        "long"
       ]
     }
   ]

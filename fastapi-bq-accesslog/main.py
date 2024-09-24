@@ -8,11 +8,11 @@ from fastavro.schema import load_schema
 from fastavro.validation import validate
 
 import asyncio
-import aiohttp
+# import aiohttp
 import time
 import io
 
-BATCH_SIZE = 10
+BATCH_SIZE = 3
 BATCH_INTERVAL = 5
 SHUTDOWN_TIMEOUT = 3
 
@@ -22,7 +22,7 @@ accesslog_schema = load_schema("./schema.avsc")
 
 # session = aiohttp.ClientSession()
 pubsub_client = PublisherClient()  # (session=session)
-topic = pubsub_client.topic_path('', 'pybqlog-access-log-v1')
+topic = pubsub_client.topic_path('*', 'pybqlog-access-log-v1')
 
 
 class AccessLogMiddleware(BaseHTTPMiddleware):
@@ -51,7 +51,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
             u"responseSize": int(response_size) if response_size else None,
         }
         if not validate(log_entry, accesslog_schema):
-            print("Invalid data")
+            return response
         # Serialize to Avro
         avro_data = self.serialize_avro(log_entry, accesslog_schema)
         await queue.put(avro_data)
@@ -60,7 +60,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
 
     def serialize_avro(self, record, schema):
         bytes_writer = io.BytesIO()
-        fastavro.writer(bytes_writer, schema, [record])
+        fastavro.schemaless_writer(bytes_writer, schema, record)
         return bytes_writer.getvalue()
 
 
@@ -125,38 +125,6 @@ async def shutdown(wait_time: int = 3):
 
 app.add_middleware(AccessLogMiddleware)
 app.router.lifespan_context = lifespan
-
-# async def publish_to_pubsub(request: Request, response: Response):
-#    await asyncio.sleep(5)
-#    print("method", request.method)
-#    print("url", request.url)
-#    print("headers", request.headers)
-#    # print("body", await request.text())
-#    print("status_code", response.status_code)
-#
-#    async with aiohttp.ClientSession() as session:
-#        client = PublisherClient(session=session)
-#
-#        topic = client.topic_path('', 'pybqlog-access-log-v1')
-#
-#        messages = [
-#            PubsubMessage(b'payload', attribute='value'),
-#            PubsubMessage(b'other payload', other_attribute='whatever',
-#                          more_attributes='something else'),
-#        ]
-#        response = await client.publish(topic, messages)
-#
-#
-# async def publish_message(request: Request, response: Response):
-#    asyncio.create_task(publish_to_pubsub(request, response))
-#
-#
-# @app.middleware("http")
-# async def accesslog(request: Request, call_next):
-#    response = await call_next(request)
-#    publish_task = asyncio.create_task(publish_message(request, response))
-#    await asyncio.gather(publish_task)  # publishタスクが完了するまで待つ
-#    return response
 
 
 @app.get("/")
