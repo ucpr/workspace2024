@@ -1,133 +1,40 @@
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
-from starlette.middleware.base import BaseHTTPMiddleware
-from gcloud.aio.pubsub import PubsubMessage
-from gcloud.aio.pubsub import PublisherClient
-import fastavro
-from fastavro.validation import validate
 import asyncio
-import aiohttp
-import time
-import io
 
-from schema import accesslog_schema
-
-BATCH_SIZE = 100
-BATCH_INTERVAL = 3
-SHUTDOWN_TIMEOUT = 10
+from accesslog_middleware import (
+    AccessLogMiddleware,
+    start_log_processing,
+    shutdown_processing,
+)
 
 app = FastAPI()
-queue = asyncio.Queue()
 
-session = aiohttp.ClientSession()
-pubsub_client = PublisherClient(session=session)
-topic = pubsub_client.topic_path('*', 'pybqlog-access-log-v1')
-
-
-class AccessLogMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next) -> Response:
-        start_time = time.time()
-        response: Response = await call_next(request)
-
-        process_time = int((time.time() - start_time) *
-                           1_000_000)  # Convert to microseconds
-        request_size = request.headers.get("content-length")
-        response_size = response.headers.get("content-length")
-
-        # Build the access log entry
-        log_entry = {
-            u"timestamp": int(time.time() * 1_000_000),
-            u"id": None,
-            u"traceId": None,
-            u"ip": request.client.host,
-            u"userAgent": request.headers.get("user-agent"),
-            u"method": request.method,
-            u"path": request.url.path,
-            u"query": request.url.query,
-            u"status": response.status_code,
-            u"duration": process_time,
-            u"requestSize": int(request_size) if request_size else None,
-            u"responseSize": int(response_size) if response_size else None,
-        }
-        if not validate(log_entry, accesslog_schema):
-            return response
-        # Serialize to Avro
-        avro_data = self.serialize_avro(log_entry, accesslog_schema)
-        await queue.put(avro_data)
-
-        return response
-
-    def serialize_avro(self, record, schema):
-        bytes_writer = io.BytesIO()
-        fastavro.schemaless_writer(bytes_writer, schema, record)
-        return bytes_writer.getvalue()
-
-
-async def process_logs():
-    batch = []
-    while True:
-        try:
-            log_data = await asyncio.wait_for(
-                queue.get(), timeout=BATCH_INTERVAL,
-            )
-            batch.append(log_data)
-            queue.task_done()
-
-            if len(batch) >= BATCH_SIZE:
-                await publish_to_pubsub(batch)
-                batch = []
-        except asyncio.TimeoutError:
-            if batch:
-                await publish_to_pubsub(batch)
-                batch = []
-        except asyncio.CancelledError:
-            if batch:
-                await publish_to_pubsub(batch)
-            break
-
-
-async def publish_to_pubsub(data):
-    messages = [
-        PubsubMessage(x) for x in data
-    ]
-    # await asyncio.sleep(3)
-    print("fin sleep", len(messages))
-    await pubsub_client.publish(topic, messages)
+# Injecting the queue into middleware
+app.add_middleware(AccessLogMiddleware)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    asyncio.create_task(process_logs())
+    asyncio.create_task(start_log_processing())
     yield
-    await shutdown()
+    await shutdown_processing()
 
 
-async def get_remaining_tasks_from_queue(queue: asyncio.Queue) -> list:
-    remaining_tasks = []
-    while not queue.empty():
-        task = await queue.get()
-        remaining_tasks.append(task)
-        queue.task_done()
-    return remaining_tasks
-
-
-async def shutdown(wait_time: int = 3):
-    try:
-        await asyncio.wait_for(queue.join(), timeout=SHUTDOWN_TIMEOUT)
-    except asyncio.TimeoutError:
-        pending_tasks = await get_remaining_tasks_from_queue(queue)
-        if pending_tasks:
-            for task in pending_tasks:
-                task.cancel()
-            await asyncio.gather(*pending_tasks, return_exceptions=True)
-    # session.close()
-    await pubsub_client.close()
-
-
-app.add_middleware(AccessLogMiddleware)
 app.router.lifespan_context = lifespan
 
 
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
+
+
+@app.get("/test/{value}")
+async def test(request: Request):
+    domain = request.base_url
+    path = request.url.path
+    route = request.scope['root_path'] + request.scope['route'].path
+    query_params = request.query_params
+    print(f"Domain: {domain} Path: {path} Query Params: {
+          query_params} Route: {route}")
+    return {"value": "hoge"}

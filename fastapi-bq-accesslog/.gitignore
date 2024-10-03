@@ -1,1 +1,7 @@
 __pycache__/
+tmp
+.venv
+.pytest_cache
+.vscode
+.coverage
+coverage.xml
