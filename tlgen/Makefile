@@ -3,8 +3,13 @@ metrics:
 	go run github.com/open-telemetry/opentelemetry-collector-contrib/cmd/telemetrygen@latest metrics --duration 1s --otlp-insecure
 
 .PHONY: traces
+traces: OPTS ?=
 traces:
-	go run github.com/open-telemetry/opentelemetry-collector-contrib/cmd/telemetrygen@latest traces --otlp-insecure --duration 10s --rate 500 --workers 10
+	go run github.com/open-telemetry/opentelemetry-collector-contrib/cmd/telemetrygen@latest traces --otlp-insecure --duration 1s --workers 1 $(OPTS)
+
+.PHONY: traces-help
+traces-help:
+	go run github.com/open-telemetry/opentelemetry-collector-contrib/cmd/telemetrygen@latest traces --help
 
 .PHONY: logs
 logs:
