@@ -1,144 +1,111 @@
 import pytest
-from starlette.responses import Response
-from accesslog_middleware import AccessLogMiddleware, start_log_processing, publish_to_pubsub, get_remaining_tasks_from_queue, shutdown_processing
-from fastapi import FastAPI
 import asyncio
+from unittest.mock import AsyncMock, patch, MagicMock
+from fastapi import Request
+from starlette.responses import Response
+from accesslog_middleware import (
+    AccessLogMiddleware,
+    log_batch_processor,
+    start_log_processing,
+    shutdown_processing,
+    queue,
+    shutdown_event,
+)
 
-
-@pytest.fixture
-def queue():
-    return asyncio.Queue()
-
-
-@pytest.fixture
-def app(queue):
-    app = FastAPI()
-    app.add_middleware(AccessLogMiddleware, queue=queue)
-    return app
-
-
-@pytest.fixture
-def middleware(queue):
-    return AccessLogMiddleware(app=None, queue=queue)
-
-
+# pytest-asyncioを使った非同期テスト
 @pytest.mark.asyncio
-async def test_access_log_middleware(middleware, queue):
-    class MockRequest:
-        client = type("Client", (), {"host": "127.0.0.1"})
-        headers = {"user-agent": "test-agent", "content-length": "1024"}
-        method = "GET"
-        url = type("URL", (), {"path": "/test", "query": "param=value"})
+async def test_access_log_middleware_dispatch():
+    # モックしたリクエストとレスポンスを準備
+    request = MagicMock(Request)
+    request.method = "GET"
+    request.url.path = "/test"
+    request.client.host = "127.0.0.1"
+    request.headers = {"user-agent": "test-agent", "content-length": "100"}
+    request.query_params = {"param": "value"}
 
-    request = MockRequest()
-    response = Response()
+    response = MagicMock(Response)
+    response.status_code = 200
+    response.headers = {"content-length": "200"}
 
-    async def mock_call_next(request):
-        return response  # Simulate the response from call_next
+    # call_nextをモック
+    call_next = AsyncMock(return_value=response)
 
-    # Pass the asynchronous call_next
-    await middleware.dispatch(request, mock_call_next)
+    # ミドルウェアのインスタンスを作成
+    middleware = AccessLogMiddleware(app=None)
 
+    # dispatchメソッドの実行
+    with patch("time.time", side_effect=[1, 2]):  # 1秒で処理を終わらせるモック
+        await middleware.dispatch(request, call_next)
+
+    # キューに1つのログが追加されていることを確認
     assert not queue.empty()
-    avro_data = await queue.get()
-    assert avro_data is not None
-
-
-@pytest.mark.asyncio
-async def test_publish_to_pubsub(monkeypatch):
-    class MockPublisherClient:
-        async def publish(self, topic, messages):
-            assert len(messages) > 0
-            assert messages[0] is not None
-
-    pubsub_client = MockPublisherClient()
-    topic = "mock_topic"
-
-    data = [b"test-avro-data"]
-    await publish_to_pubsub(data, pubsub_client, topic)
-
+    log_entry = await queue.get()
+    assert log_entry["method"] == "GET"
+    assert log_entry["path"] == "/test"
+    assert log_entry["ip"] == "127.0.0.1"
+    assert log_entry["userAgent"] == "test-agent"
+    assert log_entry["requestSize"] == 100
+    assert log_entry["responseSize"] == 200
+    assert log_entry["status"] == 200
 
 @pytest.mark.asyncio
-async def test_start_log_processing(queue, monkeypatch):
-    class MockPublisherClient:
-        async def publish(self, topic, messages):
-            assert len(messages) == 1
-            assert messages[0] is not None
+async def test_log_batch_processor():
+    # キューにダミーのログエントリを追加
+    test_log = {"method": "GET", "path": "/test"}
+    await queue.put(test_log)
 
-        async def topic_path(self, *args, **kwargs):
-            return "mock_topic_path"
+    # PublisherClientのモックを作成
+    with patch("accesslog_middleware.PublisherClient") as mock_publisher:
+        mock_publisher_instance = mock_publisher.return_value
+        mock_publisher_instance.publish = AsyncMock()
 
-    async def mock_client_session(*args, **kwargs):
-        return MockPublisherClient()
+        # バッチプロセッサを非同期で実行
+        shutdown_event.clear()
+        task = asyncio.create_task(log_batch_processor())
 
-    # Correct the monkeypatch to replace the PublisherClient
-    # instantiation properly
-    monkeypatch.setattr("accesslog_middleware.PublisherClient",
-                        lambda *args, **kwargs: MockPublisherClient())
+        # バッチ処理が実行され、ログが送信されることを確認
+        await asyncio.sleep(0.1)  # 一瞬待つ
+        mock_publisher_instance.publish.assert_called_once_with(
+            "projects/YOUR_PROJECT_ID/topics/YOUR_TOPIC", [test_log]
+        )
 
-    # Add an item to the queue
-    await queue.put(b"test-avro-data")
+        # キューが空になっていることを確認
+        assert queue.empty()
 
-    # Run the processing task
-    processing_task = asyncio.create_task(start_log_processing(queue))
-
-    # Let the processing task run briefly
-    await asyncio.sleep(1)
-
-    # Cancel the processing task
-    processing_task.cancel()
-    try:
-        await processing_task
-    except asyncio.CancelledError:
-        pass  # Expected behavior
+        # シャットダウンイベントを発火させてタスクを終了
+        shutdown_event.set()
+        await task
 
 @pytest.mark.asyncio
-async def test_get_remaining_tasks_from_queue():
-    queue = asyncio.Queue()
+async def test_start_log_processing():
+    # バッチ処理を開始
+    with patch("accesslog_middleware.log_batch_processor") as mock_log_batch_processor:
+        mock_task = AsyncMock()
+        mock_log_batch_processor.return_value = mock_task
+        task = await start_log_processing()
 
-    # Put test data into the queue
-    test_data = [b"test1", b"test2", b"test3"]
-    for data in test_data:
-        await queue.put(data)
-
-    remaining_tasks = await get_remaining_tasks_from_queue(queue)
-
-    assert remaining_tasks == test_data
-    assert queue.empty()  # Ensure the queue is empty after retrieving tasks
-
+        # タスクが開始されていることを確認
+        mock_log_batch_processor.assert_called_once()
+        assert isinstance(task, asyncio.Task)
 
 @pytest.mark.asyncio
-async def test_shutdown_processing(monkeypatch):
-    class MockPublisherClient:
-        async def publish(self, topic, messages):
-            pass  # Mock implementation does nothing
+async def test_shutdown_processing():
+    # shutdown_processingのテスト
+    task = AsyncMock()
 
-        async def close(self):
-            pass  # Mock close does nothing
+    # shutdown_eventが発火されていることを確認
+    await shutdown_processing(task)
+    task.assert_called_once()
 
-    # Mock the PublisherClient to prevent real pubsub interaction
-    monkeypatch.setattr("accesslog_middleware.PublisherClient", MockPublisherClient)
+@pytest.mark.asyncio
+async def test_shutdown_processing_with_remaining_queue():
+    # キューにログを追加
+    test_log = {"method": "GET", "path": "/test"}
+    await queue.put(test_log)
 
-    queue = asyncio.Queue()
-    
-    # Adding test data to the queue
-    await queue.put(b"test-avro-data")
-    await queue.put(b"another-test-data")
+    # shutdown_processingを実行
+    task = AsyncMock()
+    await shutdown_processing(task)
 
-    async def mock_process_logs():
-        # This simulates processing the queue items, calling task_done for each item
-        while not queue.empty():
-            await queue.get()
-            queue.task_done()
-
-    # Start a mock task to simulate processing logs
-    process_task = asyncio.create_task(mock_process_logs())
-
-    # Call the shutdown_processing function
-    await shutdown_processing(queue)
-
-    # Wait for the mock processing task to finish
-    await process_task
-
-    # Verify that the queue is now empty
+    # キューが空になっていることを確認
     assert queue.empty()

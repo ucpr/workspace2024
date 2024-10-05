@@ -8,10 +8,17 @@ from schema import accesslog_schema
 import asyncio
 from gcloud.aio.pubsub import PubsubMessage, PublisherClient
 import aiohttp
+import logging
+import os
 
-BATCH_SIZE = 100
-BATCH_INTERVAL = 3
-SHUTDOWN_TIMEOUT = 10
+# 環境変数から設定値を取得
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", 100))
+BATCH_INTERVAL = int(os.getenv("BATCH_INTERVAL", 10))
+SHUTDOWN_TIMEOUT = int(os.getenv("SHUTDOWN_TIMEOUT", 10))
+
+# ロギング設定
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 queue: asyncio.Queue = asyncio.Queue()
 shutdown_event = asyncio.Event()
@@ -24,77 +31,69 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         start_time = time.time()
         response: Response = await call_next(request)
 
-        process_time = int((time.time() - start_time) * 1_000_000)  # Convert to microseconds
+        process_time = int((time.time() - start_time) * 1_000_000)  # マイクロ秒に変換
         request_size = request.headers.get("content-length")
         response_size = response.headers.get("content-length")
 
         log_entry = {
-            u"timestamp": int(time.time() * 1_000_000),
-            u"id": None,
-            u"traceId": None,
-            u"ip": request.client.host,
-            u"userAgent": request.headers.get("user-agent"),
-            u"method": request.method,
-            u"path": request.url.path,
-            u"query": request.url.query,
-            u"status": response.status_code,
-            u"duration": process_time,
-            u"requestSize": int(request_size) if request_size else None,
-            u"responseSize": int(response_size) if response_size else None,
+            "timestamp": int(time.time() * 1_000_000),
+            "id": None,
+            "traceId": None,
+            "ip": request.client.host,
+            "userAgent": request.headers.get("user-agent"),
+            "method": request.method,
+            "path": request.url.path,
+            "query": str(request.query_params),
+            "status": response.status_code,
+            "duration": process_time,
+            "requestSize": int(request_size) if request_size else None,
+            "responseSize": int(response_size) if response_size else None,
         }
 
-        if not validate(log_entry, accesslog_schema):
-            return response
-
-        avro_data = self.serialize_avro(log_entry, accesslog_schema)
-        await queue.put(avro_data)
+        # Avroのバリデーションを追加
+        if validate(log_entry, accesslog_schema):
+            await queue.put(log_entry)
+        else:
+            logger.error("Log entry validation failed")
 
         return response
 
-    def serialize_avro(self, record, schema):
-        bytes_writer = io.BytesIO()
-        fastavro.schemaless_writer(bytes_writer, schema, record)
-        return bytes_writer.getvalue()
 
 async def start_log_processing():
-    batch = []
-    async with aiohttp.ClientSession() as session:
-        pubsub_client = PublisherClient(session=session)
-        topic = pubsub_client.topic_path('*', 'pybqlog-access-log-v1')
+    # バッチ処理をバックグラウンドで実行
+    logger.info("Starting log processing")
+    task = asyncio.create_task(log_batch_processor())
+    return task
 
-        while not (shutdown_event.is_set() and queue.empty()):
-            try:
-                log_data = await asyncio.wait_for(queue.get(), timeout=BATCH_INTERVAL)
-                if log_data is None:
-                    break  # 明示的にNoneを受け取ったら終了
-                batch.append(log_data)
-                queue.task_done()
 
-                if len(batch) >= BATCH_SIZE:
-                    await publish_to_pubsub(batch, pubsub_client, topic)
-                    batch = []
-            except asyncio.TimeoutError:
-                if batch:
-                    await publish_to_pubsub(batch, pubsub_client, topic)
-                    batch = []
-            except asyncio.CancelledError:
-                break
-        
-        # シャットダウン時にバッチが残っていれば、それも送信
-        if batch:
-            await publish_to_pubsub(batch, pubsub_client, topic)
+async def log_batch_processor():
+    publisher = PublisherClient()
+    while not shutdown_event.is_set() or not queue.empty():
+        try:
+            # キューに残っているログをバッチ処理
+            batch_size = min(queue.qsize(), BATCH_SIZE)
+            batch = [await queue.get() for _ in range(batch_size)]
+            if batch:
+                # ログの送信処理
+                # await publisher.publish("projects/YOUR_PROJECT_ID/topics/YOUR_TOPIC", batch)
+                await asyncio.sleep(1)
+                logger.info(f"Published batch of {len(batch)} log entries")
+            await asyncio.sleep(BATCH_INTERVAL)
+        except Exception as e:
+            logger.error(f"Error in log batch processor: {e}")
 
-async def publish_to_pubsub(data, pubsub_client, topic):
-    messages = [PubsubMessage(x) for x in data]
-    await asyncio.sleep(1)  # PubSub送信の代わり
-    print(f"Published {len(messages)} messages to Pub/Sub")
 
-async def shutdown_processing():
-    shutdown_event.set()  # シャットダウンフラグを立てる
+async def shutdown_processing(task):
+    # シャットダウンイベントをセット
+    shutdown_event.set()
+
+    # キューが空になるまでバッチ処理を継続
     try:
-        # Noneをキューに入れて、処理ループに終了を伝える
-        await queue.put(None)
-        await asyncio.wait_for(queue.join(), timeout=SHUTDOWN_TIMEOUT)
-        print("All tasks are done")
+        await asyncio.wait_for(task, SHUTDOWN_TIMEOUT)
     except asyncio.TimeoutError:
-        print("Shutdown timeout reached")
+        logger.error("Shutdown timeout reached")
+    
+    # キューに残っているアイテムを全て処理
+    while not queue.empty():
+        logger.info("Processing remaining log entries before shutdown...")
+        await log_batch_processor()

@@ -1,24 +1,35 @@
 from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
 import asyncio
-
+import logging
 from accesslog_middleware import (
     AccessLogMiddleware,
     start_log_processing,
     shutdown_processing,
 )
 
+# ロギング設定
+logging.basicConfig(format='%(asctime)s,%(msecs)03d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
+    datefmt='%Y-%m-%d:%H:%M:%S',
+    level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
 app = FastAPI()
 
-# Injecting the queue into middleware
+# ミドルウェアにキューを注入
 app.add_middleware(AccessLogMiddleware)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    asyncio.create_task(start_log_processing())
-    yield
-    await shutdown_processing()
+    # 例外処理を追加し、エラー時にログを出力
+    try:
+        task = asyncio.create_task(start_log_processing())
+        yield
+    except Exception as e:
+        logger.error(f"Error in lifespan context: {e}")
+    finally:
+        await shutdown_processing(task)
 
 
 app.router.lifespan_context = lifespan
@@ -35,6 +46,5 @@ async def test(request: Request):
     path = request.url.path
     route = request.scope['root_path'] + request.scope['route'].path
     query_params = request.query_params
-    print(f"Domain: {domain} Path: {path} Query Params: {
-          query_params} Route: {route}")
+    logger.info(f"Domain: {domain} Path: {path} Query Params: {query_params} Route: {route}")
     return {"value": "hoge"}
