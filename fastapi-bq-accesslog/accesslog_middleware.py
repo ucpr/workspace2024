@@ -9,17 +9,12 @@ import asyncio
 from gcloud.aio.pubsub import PubsubMessage, PublisherClient
 import aiohttp
 
-
 BATCH_SIZE = 100
 BATCH_INTERVAL = 3
 SHUTDOWN_TIMEOUT = 10
 
-# session = aiohttp.ClientSession()
-# pubsub_client = PublisherClient(session=session)
-# topic = pubsub_client.topic_path('*', 'pybqlog-access-log-v1')
-
 queue: asyncio.Queue = asyncio.Queue()
-
+shutdown_event = asyncio.Event()
 
 class AccessLogMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
@@ -29,8 +24,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         start_time = time.time()
         response: Response = await call_next(request)
 
-        process_time = int((time.time() - start_time) *
-                           1_000_000)  # Convert to microseconds
+        process_time = int((time.time() - start_time) * 1_000_000)  # Convert to microseconds
         request_size = request.headers.get("content-length")
         response_size = response.headers.get("content-length")
 
@@ -62,16 +56,17 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         fastavro.schemaless_writer(bytes_writer, schema, record)
         return bytes_writer.getvalue()
 
-
 async def start_log_processing():
     batch = []
     async with aiohttp.ClientSession() as session:
         pubsub_client = PublisherClient(session=session)
         topic = pubsub_client.topic_path('*', 'pybqlog-access-log-v1')
 
-        while True:
+        while not (shutdown_event.is_set() and queue.empty()):
             try:
                 log_data = await asyncio.wait_for(queue.get(), timeout=BATCH_INTERVAL)
+                if log_data is None:
+                    break  # 明示的にNoneを受け取ったら終了
                 batch.append(log_data)
                 queue.task_done()
 
@@ -83,33 +78,23 @@ async def start_log_processing():
                     await publish_to_pubsub(batch, pubsub_client, topic)
                     batch = []
             except asyncio.CancelledError:
-                if batch:
-                    await publish_to_pubsub(batch, pubsub_client, topic)
                 break
-
+        
+        # シャットダウン時にバッチが残っていれば、それも送信
+        if batch:
+            await publish_to_pubsub(batch, pubsub_client, topic)
 
 async def publish_to_pubsub(data, pubsub_client, topic):
     messages = [PubsubMessage(x) for x in data]
-    # await pubsub_client.publish(topic, messages)
-    await asyncio.sleep(1)
+    await asyncio.sleep(1)  # PubSub送信の代わり
     print(f"Published {len(messages)} messages to Pub/Sub")
 
-
 async def shutdown_processing():
+    shutdown_event.set()  # シャットダウンフラグを立てる
     try:
+        # Noneをキューに入れて、処理ループに終了を伝える
+        await queue.put(None)
         await asyncio.wait_for(queue.join(), timeout=SHUTDOWN_TIMEOUT)
         print("All tasks are done")
     except asyncio.TimeoutError:
-        remaining_tasks = await get_remaining_tasks_from_queue()
-        for task in remaining_tasks:
-            task.cancel()
-        await asyncio.gather(*remaining_tasks, return_exceptions=True)
-
-
-async def get_remaining_tasks_from_queue() -> list:
-    remaining_tasks = []
-    while not queue.empty():
-        task = await queue.get()
-        remaining_tasks.append(task)
-        queue.task_done()
-    return remaining_tasks
+        print("Shutdown timeout reached")
