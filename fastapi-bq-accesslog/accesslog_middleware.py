@@ -16,6 +16,7 @@ BATCH_SIZE = int(os.getenv("BATCH_SIZE", 100))
 BATCH_INTERVAL = int(os.getenv("BATCH_INTERVAL", 10))
 SHUTDOWN_TIMEOUT = int(os.getenv("SHUTDOWN_TIMEOUT", 10))
 
+
 # ロギング設定
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
