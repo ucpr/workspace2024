@@ -25,10 +25,14 @@ exporters:
     resource_to_telemetry_conversion:
       enabled: true
 
+extensions:
+  zpages:
+
 service:
   telemetry:
     metrics:
       address: ":8888"
+  extensions: [zpages]
   pipelines:
     logs:
       receivers: [otlp]

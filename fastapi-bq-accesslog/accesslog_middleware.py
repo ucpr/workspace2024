@@ -12,9 +12,9 @@ import logging
 import os
 
 # 環境変数から設定値を取得
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", 100))
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", 3))
 BATCH_INTERVAL = int(os.getenv("BATCH_INTERVAL", 10))
-SHUTDOWN_TIMEOUT = int(os.getenv("SHUTDOWN_TIMEOUT", 10))
+SHUTDOWN_TIMEOUT = int(os.getenv("SHUTDOWN_TIMEOUT", 3))
 
 
 # ロギング設定
@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 queue: asyncio.Queue = asyncio.Queue()
 shutdown_event = asyncio.Event()
+
 
 class AccessLogMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
@@ -71,13 +72,12 @@ async def log_batch_processor():
     publisher = PublisherClient()
     while not shutdown_event.is_set() or not queue.empty():
         try:
-            # キューに残っているログをバッチ処理
             batch_size = min(queue.qsize(), BATCH_SIZE)
             batch = [await queue.get() for _ in range(batch_size)]
             if batch:
                 # ログの送信処理
                 # await publisher.publish("projects/YOUR_PROJECT_ID/topics/YOUR_TOPIC", batch)
-                await asyncio.sleep(1)
+                # await asyncio.sleep(1)
                 logger.info(f"Published batch of {len(batch)} log entries")
             await asyncio.sleep(BATCH_INTERVAL)
         except Exception as e:
@@ -93,7 +93,7 @@ async def shutdown_processing(task):
         await asyncio.wait_for(task, SHUTDOWN_TIMEOUT)
     except asyncio.TimeoutError:
         logger.error("Shutdown timeout reached")
-    
+
     # キューに残っているアイテムを全て処理
     while not queue.empty():
         logger.info("Processing remaining log entries before shutdown...")

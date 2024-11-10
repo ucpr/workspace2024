@@ -46,5 +46,6 @@ async def test(request: Request):
     path = request.url.path
     route = request.scope['root_path'] + request.scope['route'].path
     query_params = request.query_params
+    print(request.client)
     logger.info(f"Domain: {domain} Path: {path} Query Params: {query_params} Route: {route}")
     return {"value": "hoge"}

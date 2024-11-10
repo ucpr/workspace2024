@@ -17,4 +17,4 @@ logs:
 
 .PHONY: start-collector
 start-collector:
-	docker run -p 4317:4317 -p 4318:4318 -p 8888:8888 -p 30001:30001 -v $$(pwd)/config.yaml:/etc/otelcol-contrib/config.yaml ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+	docker run -p 4317:4317 -p 4318:4318 -p 8888:8888 -p 30001:30001 -p 55679:55679 -v $$(pwd)/config.yaml:/etc/otelcol-contrib/config.yaml ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib

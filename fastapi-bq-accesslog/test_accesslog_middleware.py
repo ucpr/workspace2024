@@ -1,10 +1,16 @@
 import pytest
 import asyncio
-import time
 from fastapi import FastAPI
 from starlette.testclient import TestClient
-from unittest.mock import patch, MagicMock
-from accesslog_middleware import AccessLogMiddleware, log_batch_processor, shutdown_processing, queue, shutdown_event
+from accesslog_middleware import (
+    AccessLogMiddleware,
+    log_batch_processor,
+    shutdown_processing,
+    start_log_processing,
+    queue,
+    # shutdown_event,
+)
+
 
 @pytest.fixture
 def test_app():
@@ -12,9 +18,11 @@ def test_app():
     app.add_middleware(AccessLogMiddleware)
     return app
 
+
 @pytest.fixture
 def test_client(test_app):
     return TestClient(test_app)
+
 
 @pytest.mark.asyncio
 async def test_access_log_middleware(test_app):
@@ -34,8 +42,8 @@ async def test_access_log_middleware(test_app):
 async def test_shutdown_processing():
     # キューにアイテムを追加
     await queue.put({"message": "shutdown log"})
-    
-    task = asyncio.create_task(log_batch_processor())
+
+    task = start_log_processing()
 
     # シャットダウン処理のテスト
     await shutdown_processing(task)
